@@ -1,5 +1,5 @@
 const express  = require('express');
-const { registerWallet, getEntry, getHandle, getSize } = require('./registry');
+const { registerWallet, getEntry, getHandle, getSize, getAddresses } = require('./registry');
 const { sendPush, buildThrowPayload, buildTestPayload, getVapidPublicKey } = require('./push');
 const { recordThrow, setBlock, setStatus, getStatus, getHistory } = require('./stats');
 
@@ -130,7 +130,7 @@ router.post('/register', (req, res) => {
 
 // GET /throw-watcher/status
 router.get('/status', (_req, res) => {
-  res.json(getStatus(getSize()));
+  res.json(getStatus(getSize(), getAddresses()));
 });
 
 // GET /throw-watcher/throws

@@ -48,11 +48,12 @@ function setStatus(s) {
   watcherStatus = s;
 }
 
-function getStatus(registeredWallets) {
+function getStatus(registeredWallets, registeredAddresses) {
   maybeResetDaily();
   return {
     watcherStatus,
     registeredWallets,
+    registeredAddresses: registeredAddresses || [],
     throwsToday,
     throwsTotal,
     volumeToday:  parseFloat(volumeToday.toFixed(2)),

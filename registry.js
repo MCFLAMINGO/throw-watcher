@@ -54,6 +54,10 @@ function getSize() {
   return registry.size;
 }
 
+function getAddresses() {
+  return Array.from(registry.keys());
+}
+
 loadRegistry();
 
-module.exports = { registerWallet, getEntry, getHandle, getSize };
+module.exports = { registerWallet, getEntry, getHandle, getSize, getAddresses };
