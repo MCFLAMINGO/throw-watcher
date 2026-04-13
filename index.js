@@ -10,6 +10,7 @@ app.use(cors({
     'https://throw5onit.com',
     'https://www.throw5onit.com',
     'https://gsb-swarm-dashboard.vercel.app',
+    'https://swarm-deploy-throw.vercel.app',
     'http://localhost:3000',
     'http://localhost:3001',
   ],
