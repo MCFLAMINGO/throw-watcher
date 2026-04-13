@@ -8,13 +8,18 @@ function initPush() {
     console.warn('[push] VAPID keys not set — Web Push disabled');
     return;
   }
-  webPush.setVapidDetails(
-    VAPID_SUBJECT || 'mailto:erik@mcflamingo.com',
-    VAPID_PUBLIC_KEY,
-    VAPID_PRIVATE_KEY
-  );
-  initialized = true;
-  console.log('[push] VAPID initialized');
+  try {
+    webPush.setVapidDetails(
+      VAPID_SUBJECT || 'mailto:erik@mcflamingo.com',
+      VAPID_PUBLIC_KEY.trim(),
+      VAPID_PRIVATE_KEY.trim()
+    );
+    initialized = true;
+    console.log('[push] VAPID initialized');
+  } catch (e) {
+    console.error('[push] VAPID init failed — check key format:', e.message);
+    console.error('[push] Web Push disabled — service will still run');
+  }
 }
 
 async function sendPush(subscription, payload) {
