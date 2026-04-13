@@ -3,7 +3,7 @@ const cors    = require('cors');
 const { router: watcherRouter, startWatcher } = require('./watcher');
 
 const app  = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 8080;
 
 app.use(cors({
   origin: [
