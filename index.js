@@ -1,6 +1,7 @@
 const express = require('express');
 const cors    = require('cors');
 const { router: watcherRouter, startWatcher } = require('./watcher');
+const authRouter = require('./auth');
 
 const app  = express();
 const PORT = process.env.PORT || 8080;
@@ -21,6 +22,7 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'throw-watcher', ts: new Date().toISOString() }));
 app.use('/throw-watcher', watcherRouter);
+app.use('/auth', authRouter);
 
 app.listen(PORT, () => {
   console.log(`[throw-watcher] listening on :${PORT}`);
