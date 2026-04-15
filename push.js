@@ -47,6 +47,17 @@ function buildThrowPayload({ amount, token, fromHandle }) {
   };
 }
 
+function buildSentPayload({ amount, token, toHandle }) {
+  const amtStr = Number(amount).toFixed(2);
+  return {
+    title: `✅ $${amtStr} landed!`,
+    body:  `Your throw to ${toHandle} hit the chain — $${amtStr} ${token} confirmed`,
+    icon:  '/icon-192.png',
+    badge: '/icon-192.png',
+    data:  { url: 'https://throw5onit.com' },
+  };
+}
+
 function buildTestPayload() {
   return {
     title: '🎯 THROW Watcher test',
@@ -63,4 +74,4 @@ function getVapidPublicKey() {
 
 initPush();
 
-module.exports = { sendPush, buildThrowPayload, buildTestPayload, getVapidPublicKey };
+module.exports = { sendPush, buildThrowPayload, buildSentPayload, buildTestPayload, getVapidPublicKey };

@@ -1,6 +1,6 @@
 const express  = require('express');
 const { registerWallet, getEntry, getHandle, getSize, getAddresses } = require('./registry');
-const { sendPush, buildThrowPayload, buildTestPayload, getVapidPublicKey } = require('./push');
+const { sendPush, buildThrowPayload, buildSentPayload, buildTestPayload, getVapidPublicKey } = require('./push');
 const { recordThrow, setBlock, setStatus, getStatus, getHistory } = require('./stats');
 
 // ─── Constants (mirror throw5onit app.js) ───────────────────────────────────
@@ -89,12 +89,18 @@ async function pollOnce() {
 
       recordThrow({ from, to, fromHandle, toHandle, amount, token, txHash, blockNumber: blockN, ts });
 
-      // Send Web Push if recipient is registered
-      const entry = getEntry(to);
-      if (entry && entry.subscription) {
-        const payload = buildThrowPayload({ amount, token, fromHandle });
-        await sendPush(entry.subscription, payload);
-        console.log(`[watcher] push sent → ${toHandle} ($${amount} ${token})`);
+      // Push to recipient — incoming throw
+      const toEntry = getEntry(to);
+      if (toEntry && toEntry.subscription) {
+        await sendPush(toEntry.subscription, buildThrowPayload({ amount, token, fromHandle }));
+        console.log(`[watcher] push → recipient ${toHandle} ($${amount} ${token})`);
+      }
+
+      // Push to sender — on-chain confirmation
+      const fromEntry = getEntry(from);
+      if (fromEntry && fromEntry.subscription) {
+        await sendPush(fromEntry.subscription, buildSentPayload({ amount, token, toHandle }));
+        console.log(`[watcher] push → sender ${fromHandle} (confirmed $${amount} ${token})`);
       }
     }
 
