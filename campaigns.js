@@ -1,63 +1,143 @@
-const fs   = require('fs');
-const path = require('path');
+'use strict';
+/**
+ * campaigns.js — Postgres-backed campaign store
+ * Uses the same LOCAL_INTEL_DB_URL as gsb-swarm.
+ * Table: throw_campaigns (auto-created on first use)
+ */
+
+const { Pool } = require('pg');
 const crypto = require('crypto');
 
-const FILE = path.join(__dirname, 'campaigns.json');
-let campaigns = [];
-
-function load() {
-  try {
-    if (fs.existsSync(FILE)) campaigns = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch(_) { campaigns = []; }
+let _pool = null;
+function getPool() {
+  if (!_pool) {
+    const url = process.env.LOCAL_INTEL_DB_URL;
+    if (!url) throw new Error('LOCAL_INTEL_DB_URL not set');
+    _pool = new Pool({
+      connectionString: url,
+      ssl: { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30000,
+    });
+    _pool.on('error', err => console.error('[campaigns] pool error:', err.message));
+  }
+  return _pool;
 }
-function save() {
-  try { fs.writeFileSync(FILE, JSON.stringify(campaigns, null, 2)); } catch(_) {}
+
+async function db(sql, params = []) {
+  const res = await getPool().query(sql, params);
+  return res.rows;
 }
 
-load();
+// ── Boot: ensure table exists ─────────────────────────────────────────────────
+async function ensureTable() {
+  await db(`
+    CREATE TABLE IF NOT EXISTS throw_campaigns (
+      id           TEXT PRIMARY KEY,
+      advertiser   TEXT NOT NULL DEFAULT 'Unknown',
+      budget       NUMERIC(12,2) DEFAULT 0,
+      cpm          NUMERIC(10,4) DEFAULT 0,
+      copy         TEXT DEFAULT '',
+      image_url    TEXT DEFAULT '',
+      target       TEXT DEFAULT 'all',
+      start_date   TEXT DEFAULT '',
+      end_date     TEXT DEFAULT '',
+      status       TEXT DEFAULT 'active',
+      impressions  INTEGER DEFAULT 0,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  console.log('[campaigns] table ready');
+}
 
-function getAll()      { return campaigns; }
-function getActive()   { return campaigns.filter(c => c.status === 'active'); }
-function getById(id)   { return campaigns.find(c => c.id === id); }
+ensureTable().catch(e => console.error('[campaigns] ensureTable failed:', e.message));
 
-function create(data) {
-  const c = {
-    id:         crypto.randomBytes(8).toString('hex'),
-    advertiser: data.advertiser || 'Unknown',
-    budget:     parseFloat(data.budget)   || 0,
-    cpm:        parseFloat(data.cpm)      || 0,
-    copy:       (data.copy || '').slice(0, 120),
-    imageUrl:   data.imageUrl || '',
-    target:     data.target   || 'all',
-    startDate:  data.startDate || '',
-    endDate:    data.endDate   || '',
-    status:     data.status    || 'active',
-    impressions: 0,
-    createdAt:  new Date().toISOString(),
+// ── CRUD ──────────────────────────────────────────────────────────────────────
+
+function rowToObj(r) {
+  return {
+    id:          r.id,
+    advertiser:  r.advertiser,
+    budget:      parseFloat(r.budget),
+    cpm:         parseFloat(r.cpm),
+    copy:        r.copy,
+    imageUrl:    r.image_url,
+    target:      r.target,
+    startDate:   r.start_date,
+    endDate:     r.end_date,
+    status:      r.status,
+    impressions: r.impressions,
+    createdAt:   r.created_at,
   };
-  campaigns.push(c);
-  save();
-  return c;
 }
 
-function update(id, patch) {
-  const idx = campaigns.findIndex(c => c.id === id);
-  if (idx === -1) return null;
-  campaigns[idx] = { ...campaigns[idx], ...patch };
-  save();
-  return campaigns[idx];
+async function getAll() {
+  const rows = await db('SELECT * FROM throw_campaigns ORDER BY created_at DESC');
+  return rows.map(rowToObj);
 }
 
-function remove(id) {
-  const before = campaigns.length;
-  campaigns = campaigns.filter(c => c.id !== id);
-  if (campaigns.length < before) { save(); return true; }
-  return false;
+async function getActive() {
+  const rows = await db("SELECT * FROM throw_campaigns WHERE status = 'active' ORDER BY created_at DESC");
+  return rows.map(rowToObj);
 }
 
-function recordImpression(id) {
-  const c = campaigns.find(c => c.id === id);
-  if (c) { c.impressions = (c.impressions || 0) + 1; save(); }
+async function getById(id) {
+  const rows = await db('SELECT * FROM throw_campaigns WHERE id = $1', [id]);
+  return rows[0] ? rowToObj(rows[0]) : null;
+}
+
+async function create(data) {
+  const id = crypto.randomBytes(8).toString('hex');
+  const rows = await db(
+    `INSERT INTO throw_campaigns (id, advertiser, budget, cpm, copy, image_url, target, start_date, end_date, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [
+      id,
+      data.advertiser || 'Unknown',
+      parseFloat(data.budget) || 0,
+      parseFloat(data.cpm) || 0,
+      (data.copy || '').slice(0, 120),
+      data.imageUrl || '',
+      data.target || 'all',
+      data.startDate || '',
+      data.endDate || '',
+      data.status || 'active',
+    ]
+  );
+  return rowToObj(rows[0]);
+}
+
+async function update(id, patch) {
+  const fields = [];
+  const vals   = [];
+  let   i      = 1;
+  const map = {
+    advertiser: 'advertiser', budget: 'budget', cpm: 'cpm',
+    copy: 'copy', imageUrl: 'image_url', target: 'target',
+    startDate: 'start_date', endDate: 'end_date', status: 'status',
+  };
+  for (const [key, col] of Object.entries(map)) {
+    if (patch[key] !== undefined) {
+      fields.push(`${col} = $${i++}`);
+      vals.push(patch[key]);
+    }
+  }
+  if (!fields.length) return getById(id);
+  vals.push(id);
+  const rows = await db(
+    `UPDATE throw_campaigns SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+    vals
+  );
+  return rows[0] ? rowToObj(rows[0]) : null;
+}
+
+async function remove(id) {
+  const rows = await db('DELETE FROM throw_campaigns WHERE id = $1 RETURNING id', [id]);
+  return rows.length > 0;
+}
+
+async function recordImpression(id) {
+  await db('UPDATE throw_campaigns SET impressions = impressions + 1 WHERE id = $1', [id]);
 }
 
 module.exports = { getAll, getActive, getById, create, update, remove, recordImpression };

@@ -16,7 +16,7 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3001',
   ],
-  methods: ['GET','POST','OPTIONS'],
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization'],
 }));
 app.use(express.json());
@@ -24,29 +24,73 @@ app.use(express.json());
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'throw-watcher', ts: new Date().toISOString() }));
 
 /* ── Ad Campaigns ── */
-app.get('/throw-watcher/campaigns', (_req, res) => {
-  res.json(campaigns.getAll());
+app.get('/throw-watcher/campaigns', async (_req, res) => {
+  try { res.json(await campaigns.getAll()); }
+  catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/throw-watcher/campaigns', (req, res) => {
-  const c = campaigns.create(req.body);
-  res.status(201).json(c);
+app.post('/throw-watcher/campaigns', async (req, res) => {
+  try {
+    const c = await campaigns.create(req.body);
+    res.status(201).json(c);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.put('/throw-watcher/campaigns/:id', (req, res) => {
-  const c = campaigns.update(req.params.id, req.body);
-  if (!c) return res.status(404).json({ error: 'not found' });
-  res.json(c);
+app.put('/throw-watcher/campaigns/:id', async (req, res) => {
+  try {
+    const c = await campaigns.update(req.params.id, req.body);
+    if (!c) return res.status(404).json({ error: 'not found' });
+    res.json(c);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.delete('/throw-watcher/campaigns/:id', (req, res) => {
-  const ok = campaigns.remove(req.params.id);
-  res.json({ ok });
+app.delete('/throw-watcher/campaigns/:id', async (req, res) => {
+  try {
+    const ok = await campaigns.remove(req.params.id);
+    res.json({ ok });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/throw-watcher/campaigns/:id/impression', (req, res) => {
-  campaigns.recordImpression(req.params.id);
-  res.json({ ok: true });
+app.post('/throw-watcher/campaigns/:id/impression', async (req, res) => {
+  try {
+    await campaigns.recordImpression(req.params.id);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+/* ── MQTT Sponsor Push (retained — every new THROW load picks it up) ── */
+app.post('/throw-watcher/sponsor-push', async (req, res) => {
+  const { sponsor, sponsors } = req.body || {};
+  if (!sponsor) return res.status(400).json({ error: 'sponsor required' });
+  try {
+    // Publish retained MQTT message to throw/sponsor
+    // We use the mqtt npm package if available, otherwise log and return ok
+    let published = false;
+    try {
+      const mqtt = require('mqtt');
+      const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+        clientId: 'throw-watcher-push-' + Date.now(),
+        connectTimeout: 5000,
+      });
+      await new Promise((resolve, reject) => {
+        client.on('connect', () => {
+          const payload = JSON.stringify({ sponsor, sponsors: sponsors || [sponsor], pushedAt: new Date().toISOString() });
+          client.publish('throw/sponsor', payload, { qos: 1, retain: true }, (err) => {
+            client.end();
+            if (err) reject(err); else resolve(undefined);
+          });
+        });
+        client.on('error', reject);
+        setTimeout(() => reject(new Error('MQTT timeout')), 6000);
+      });
+      published = true;
+    } catch (mqttErr) {
+      console.warn('[sponsor-push] MQTT not available or failed:', mqttErr.message);
+    }
+    res.json({ ok: true, published, sponsor: sponsor.name });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 /* ── Broadcast push ── */
@@ -70,6 +114,7 @@ app.post('/throw-watcher/broadcast', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
 app.use('/throw-watcher', watcherRouter);
 app.use('/auth', authRouter);
 
